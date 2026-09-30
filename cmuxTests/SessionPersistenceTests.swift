@@ -561,6 +561,55 @@ final class SessionPersistenceTests: XCTestCase {
         XCTAssertTrue(environment.isEmpty)
     }
 
+    func testScrollbackReplaySweepRemovesOnlyStaleFilesAndUsesPrivatePermissions() throws {
+        let fileManager = FileManager.default
+        let tempDir = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-scrollback-sweep-\(UUID().uuidString)", isDirectory: true)
+        try fileManager.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: tempDir) }
+
+        let oldFile = try XCTUnwrap(
+            SessionScrollbackReplayStore.replayFileURL(
+                for: "old replay\n",
+                tempDirectory: tempDir
+            )
+        )
+        let freshFile = try XCTUnwrap(
+            SessionScrollbackReplayStore.replayFileURL(
+                for: "fresh replay\n",
+                tempDirectory: tempDir
+            )
+        )
+
+        let now = Date(timeIntervalSince1970: 2_000_000)
+        try fileManager.setAttributes(
+            [.modificationDate: now.addingTimeInterval(-7_200)],
+            ofItemAtPath: oldFile.path
+        )
+        try fileManager.setAttributes(
+            [.modificationDate: now.addingTimeInterval(-300)],
+            ofItemAtPath: freshFile.path
+        )
+
+        let removed = SessionScrollbackReplayStore.sweepStaleReplayFiles(
+            olderThan: now.addingTimeInterval(-3_600),
+            tempDirectory: tempDir
+        )
+
+        XCTAssertEqual(removed, 1)
+        XCTAssertFalse(fileManager.fileExists(atPath: oldFile.path))
+        XCTAssertTrue(fileManager.fileExists(atPath: freshFile.path))
+
+        let directoryAttributes = try fileManager.attributesOfItem(
+            atPath: freshFile.deletingLastPathComponent().path
+        )
+        let fileAttributes = try fileManager.attributesOfItem(atPath: freshFile.path)
+        let directoryMode = (directoryAttributes[.posixPermissions] as? NSNumber)?.intValue
+        let fileMode = (fileAttributes[.posixPermissions] as? NSNumber)?.intValue
+        XCTAssertEqual(directoryMode.map { $0 & 0o777 }, 0o700)
+        XCTAssertEqual(fileMode.map { $0 & 0o777 }, 0o600)
+    }
+
     func testScrollbackReplayEnvironmentPreservesANSIColorSequences() {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-scrollback-replay-\(UUID().uuidString)", isDirectory: true)
