@@ -1902,6 +1902,7 @@ enum SessionScrollbackReplayStore {
     static let environmentKey = "CMUX_RESTORE_SCROLLBACK_FILE"
     static let boundaryPrefix = "/.cmux/session-scrollback-replay/"
     private static let directoryName = "cmux-session-scrollback"
+    static let staleReplayAge: TimeInterval = 60 * 60
     static let staleReplayFileAge: TimeInterval = 60 * 60
     private static let ansiEscape = "\u{001B}"
     private static let ansiReset = "\u{001B}[0m"
@@ -2094,38 +2095,74 @@ enum SessionScrollbackReplayStore {
         default: return false
         }
     }
+    nonisolated static func sweepStaleReplayFiles(
+        olderThan cutoff: Date,
+        tempDirectory: URL = FileManager.default.temporaryDirectory
+    ) -> Int {
+        let fileManager = FileManager.default
+        let directory = tempDirectory.appendingPathComponent(directoryName, isDirectory: true)
+        guard let entries = try? fileManager.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: [.isRegularFileKey, .contentModificationDateKey],
+            options: [.skipsHiddenFiles]
+        ) else {
+            return 0
+        }
+
+        var removed = 0
+        for fileURL in entries where fileURL.pathExtension == "txt" {
+            guard let values = try? fileURL.resourceValues(
+                forKeys: [.isRegularFileKey, .contentModificationDateKey]
+            ),
+            values.isRegularFile == true,
+            let modified = values.contentModificationDate,
+            modified < cutoff else {
+                continue
+            }
+            do {
+                try fileManager.removeItem(at: fileURL)
+                removed += 1
+            } catch {
+                continue
+            }
+        }
+        return removed
+    }
+
+    nonisolated static func sweepStaleReplayFilesAtLaunch(
+        now: Date = Date(),
+        tempDirectory: URL = FileManager.default.temporaryDirectory
+    ) -> Int {
+        sweepStaleReplayFiles(
+            olderThan: now.addingTimeInterval(-staleReplayAge),
+            tempDirectory: tempDirectory
+        )
+    }
+
     nonisolated private static func writeReplayFile(contents: String, tempDirectory: URL) -> URL? {
         guard let data = contents.data(using: .utf8) else { return nil }
         let fileManager = FileManager.default
         let directory = tempDirectory.appendingPathComponent(directoryName, isDirectory: true)
-        let directoryAttributes: [FileAttributeKey: Any] = [
-            .posixPermissions: NSNumber(value: 0o700)
-        ]
-        let fileAttributes: [FileAttributeKey: Any] = [
-            .posixPermissions: NSNumber(value: 0o600)
-        ]
 
         do {
             try fileManager.createDirectory(
                 at: directory,
                 withIntermediateDirectories: true,
-                attributes: directoryAttributes
+                attributes: [.posixPermissions: 0o700]
             )
             try fileManager.setAttributes(
-                directoryAttributes,
+                [.posixPermissions: 0o700],
                 ofItemAtPath: directory.path
             )
+
             let fileURL = directory
                 .appendingPathComponent(UUID().uuidString, isDirectory: false)
                 .appendingPathExtension("txt")
-            guard fileManager.createFile(
-                atPath: fileURL.path,
-                contents: data,
-                attributes: fileAttributes
-            ) else {
-                return nil
-            }
-            try fileManager.setAttributes(fileAttributes, ofItemAtPath: fileURL.path)
+            try data.write(to: fileURL, options: .atomic)
+            try fileManager.setAttributes(
+                [.posixPermissions: 0o600],
+                ofItemAtPath: fileURL.path
+            )
             return fileURL
         } catch {
             return nil
