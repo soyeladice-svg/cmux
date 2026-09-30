@@ -50,6 +50,10 @@ struct cmuxApp: App {
     }
 
     init() {
+        _ = SessionScrollbackReplayStore.sweepStaleReplayFiles(
+            olderThan: Date().addingTimeInterval(-SessionScrollbackReplayStore.staleReplayFileAge)
+        )
+
         // Gather settings package dependencies once. The runtime itself
         // is assigned after the saved language override below, because
         // it owns localized search-index text for the process lifetime.
