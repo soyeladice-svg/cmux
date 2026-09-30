@@ -66,6 +66,11 @@ extension CMUXCLI {
             print(Self.remotesUsage)
 
         case "list", "ls":
+            _ = try validatedRemotesPositionals(
+                rest,
+                command: "remotes list",
+                expectedCount: 0
+            )
             let response = try client.sendV2(method: "remotes.list")
             if jsonOutput {
                 print(jsonString(response))
@@ -120,7 +125,11 @@ extension CMUXCLI {
             if let tagOpt, !tagOpt.isEmpty { print("  tag:      \(tagOpt)") }
 
         case "remove", "rm", "delete":
-            let positionals = rest.filter { !$0.hasPrefix("-") }
+            let positionals = try validatedRemotesPositionals(
+                rest,
+                command: "remotes remove",
+                expectedCount: 1
+            )
             guard let target = positionals.first, !target.isEmpty else {
                 throw CLIError(message: """
                     remotes remove requires a name or deviceId.
@@ -251,6 +260,21 @@ extension CMUXCLI {
                 \(Self.aiAccountsUsage)
                 """)
         }
+    }
+
+    private func validatedRemotesPositionals(
+        _ args: [String],
+        command: String,
+        expectedCount: Int
+    ) throws -> [String] {
+        let remaining = args.filter { $0 != "--json" }
+        if let unknown = remaining.first(where: { $0.hasPrefix("-") }) {
+            throw CLIError(message: "\(command): unknown flag '\(unknown)'.\n\n\(Self.remotesUsage)")
+        }
+        if remaining.count > expectedCount, let extra = remaining.dropFirst(expectedCount).first {
+            throw CLIError(message: "\(command): unexpected argument '\(extra)'.")
+        }
+        return remaining
     }
 
     private func rejectUnexpectedAIAccountArguments(_ args: [String], command: String) throws {
