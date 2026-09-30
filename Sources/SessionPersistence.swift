@@ -1923,44 +1923,6 @@ enum SessionScrollbackReplayStore {
         return [environmentKey: replayFileURL.path]
     }
 
-    @discardableResult
-    nonisolated static func sweepStaleReplayFiles(
-        olderThan cutoff: Date,
-        tempDirectory: URL = FileManager.default.temporaryDirectory
-    ) -> Int {
-        let fileManager = FileManager.default
-        let directory = tempDirectory.appendingPathComponent(directoryName, isDirectory: true)
-        let keys: Set<URLResourceKey> = [
-            .contentModificationDateKey,
-            .isRegularFileKey,
-            .isSymbolicLinkKey,
-        ]
-        guard let files = try? fileManager.contentsOfDirectory(
-            at: directory,
-            includingPropertiesForKeys: Array(keys),
-            options: [.skipsHiddenFiles]
-        ) else {
-            return 0
-        }
-
-        var removed = 0
-        for fileURL in files where fileURL.pathExtension == "txt" {
-            guard let values = try? fileURL.resourceValues(forKeys: keys),
-                  values.isRegularFile == true,
-                  values.isSymbolicLink != true,
-                  let modifiedAt = values.contentModificationDate,
-                  modifiedAt < cutoff else {
-                continue
-            }
-            do {
-                try fileManager.removeItem(at: fileURL)
-                removed += 1
-            } catch {
-                continue
-            }
-        }
-        return removed
-    }
     nonisolated static func startBoundaryValue(forReplayFilePath path: String) -> String {
         boundaryPrefix + URL(fileURLWithPath: path).lastPathComponent + "/start"
     }
