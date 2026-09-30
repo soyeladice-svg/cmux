@@ -1902,6 +1902,7 @@ enum SessionScrollbackReplayStore {
     static let environmentKey = "CMUX_RESTORE_SCROLLBACK_FILE"
     static let boundaryPrefix = "/.cmux/session-scrollback-replay/"
     private static let directoryName = "cmux-session-scrollback"
+    static let staleReplayFileAge: TimeInterval = 60 * 60
     private static let ansiEscape = "\u{001B}"
     private static let ansiReset = "\u{001B}[0m"
     nonisolated static func replayEnvironment(
@@ -1920,6 +1921,45 @@ enum SessionScrollbackReplayStore {
     nonisolated static func replayEnvironment(forFileURL replayFileURL: URL?) -> [String: String] {
         guard let replayFileURL else { return [:] }
         return [environmentKey: replayFileURL.path]
+    }
+
+    @discardableResult
+    nonisolated static func sweepStaleReplayFiles(
+        olderThan cutoff: Date,
+        tempDirectory: URL = FileManager.default.temporaryDirectory
+    ) -> Int {
+        let fileManager = FileManager.default
+        let directory = tempDirectory.appendingPathComponent(directoryName, isDirectory: true)
+        let keys: Set<URLResourceKey> = [
+            .contentModificationDateKey,
+            .isRegularFileKey,
+            .isSymbolicLinkKey,
+        ]
+        guard let files = try? fileManager.contentsOfDirectory(
+            at: directory,
+            includingPropertiesForKeys: Array(keys),
+            options: [.skipsHiddenFiles]
+        ) else {
+            return 0
+        }
+
+        var removed = 0
+        for fileURL in files where fileURL.pathExtension == "txt" {
+            guard let values = try? fileURL.resourceValues(forKeys: keys),
+                  values.isRegularFile == true,
+                  values.isSymbolicLink != true,
+                  let modifiedAt = values.contentModificationDate,
+                  modifiedAt < cutoff else {
+                continue
+            }
+            do {
+                try fileManager.removeItem(at: fileURL)
+                removed += 1
+            } catch {
+                continue
+            }
+        }
+        return removed
     }
     nonisolated static func startBoundaryValue(forReplayFilePath path: String) -> String {
         boundaryPrefix + URL(fileURLWithPath: path).lastPathComponent + "/start"
@@ -2056,18 +2096,36 @@ enum SessionScrollbackReplayStore {
     }
     nonisolated private static func writeReplayFile(contents: String, tempDirectory: URL) -> URL? {
         guard let data = contents.data(using: .utf8) else { return nil }
+        let fileManager = FileManager.default
         let directory = tempDirectory.appendingPathComponent(directoryName, isDirectory: true)
+        let directoryAttributes: [FileAttributeKey: Any] = [
+            .posixPermissions: NSNumber(value: 0o700)
+        ]
+        let fileAttributes: [FileAttributeKey: Any] = [
+            .posixPermissions: NSNumber(value: 0o600)
+        ]
 
         do {
-            try FileManager.default.createDirectory(
+            try fileManager.createDirectory(
                 at: directory,
                 withIntermediateDirectories: true,
-                attributes: nil
+                attributes: directoryAttributes
+            )
+            try fileManager.setAttributes(
+                directoryAttributes,
+                ofItemAtPath: directory.path
             )
             let fileURL = directory
                 .appendingPathComponent(UUID().uuidString, isDirectory: false)
                 .appendingPathExtension("txt")
-            try data.write(to: fileURL, options: .atomic)
+            guard fileManager.createFile(
+                atPath: fileURL.path,
+                contents: data,
+                attributes: fileAttributes
+            ) else {
+                return nil
+            }
+            try fileManager.setAttributes(fileAttributes, ofItemAtPath: fileURL.path)
             return fileURL
         } catch {
             return nil
