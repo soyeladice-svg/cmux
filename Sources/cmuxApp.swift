@@ -51,7 +51,7 @@ struct cmuxApp: App {
 
     init() {
         _ = SessionScrollbackReplayStore.sweepStaleReplayFiles(
-            olderThan: Date().addingTimeInterval(-SessionScrollbackReplayStore.staleReplayFileAge)
+            olderThan: Date().addingTimeInterval(-SessionScrollbackReplayStore.staleReplayAge)
         )
 
         // Gather settings package dependencies once. The runtime itself
