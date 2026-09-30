@@ -1903,7 +1903,6 @@ enum SessionScrollbackReplayStore {
     static let boundaryPrefix = "/.cmux/session-scrollback-replay/"
     private static let directoryName = "cmux-session-scrollback"
     static let staleReplayAge: TimeInterval = 60 * 60
-    static let staleReplayFileAge: TimeInterval = 60 * 60
     private static let ansiEscape = "\u{001B}"
     private static let ansiReset = "\u{001B}[0m"
     nonisolated static func replayEnvironment(
