@@ -69,6 +69,9 @@ struct cmuxApp: App {
         // This App initializer is the composition root, so it is where the
         // concrete `FileManager.default` is named for the package's injected seams.
         SocketControlPasswordStore.migrateLegacyApplicationSupportPasswordFileIfNeeded(fileManager: .default)
+        // Replay artifacts are one-shot restore inputs. Sweep abandoned files
+        // before session restoration creates any new ones for this launch.
+        _ = SessionScrollbackReplayStore.sweepStaleReplayFilesAtLaunch()
         // Secrets live in their own 0600 files under the cmux state directory,
         // the same directory (and `socket-control-password` file) the socket
         // auth path reads via SocketControlPasswordStore, so the Settings UI
